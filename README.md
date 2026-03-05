@@ -19,7 +19,7 @@ I wanted to push this model and see what happens.
 > Choose an appropriate programming language and associated frameworks/libraries/packages appropiate for this task (Just please avoid NodeJS or JavaScript/TypeScript). Implement the service. Assume you can run the `amdgpu_top` command with the proposed options to study the output for creating the parser, there is a local AMD GPU running so it should provide realistic real-world data. Some examples for testing: GPU usage should be reported in percent (0-100). GPU frequency in MHz for the present card is somewhere between 1 and 2550MHz. VRAM usage should be betwen 0 and 16384MB. VTT usage somewhere between 0 and 8192MB.
 > On regular checkpoints/milestones, create a git commit to save progress.
 
-(Apart from this README.md paragraph and LICENSE)
+Produced a working service after the first session, Just had to add this README.md paragraph and LICENSE.
 
 ## Features
 
