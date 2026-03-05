@@ -1,7 +1,83 @@
 # amdgpu_exporter
 
-Provides Prometheus-compatible metrics about the AMD GPU on `:9042/metrics`.
-Requires `amdgpu_top` installed.
+Prometheus-compatible exporter for AMD GPU metrics on Linux.
+
+Exports power usage, compute load, memory usage, frequency, and temperature metrics by parsing `amdgpu_top` JSON output.
+
+## Features
+
+- **GPU Metrics**: Usage percentages (GFX, Media Engine, Memory Activity)
+- **Memory**: VRAM and VTT/GTT usage in MB
+- **Power**: Current power consumption in Watts
+- **Frequency**: GPU core and memory clocks in MHz
+- **Temperature**: Edge and hotspot temperatures in Celsius
+
+## Metrics
+
+| Metric | Description | Unit |
+|--------|-------------|------|
+| `amdgpu_gpu_usage_percent` | GPU compute/GFX usage | % |
+| `amdgpu_media_engine_usage_percent` | Media engine usage | % |
+| `amdgpu_memory_activity_percent` | Memory activity | % |
+| `amdgpu_vram_total_mb` | Total VRAM capacity | MB |
+| `amdgpu_vram_used_mb` | Used VRAM | MB |
+| `amdgpu_vtt_total_mb` | Total GTT/VTT capacity | MB |
+| `amdgpu_vtt_used_mb` | Used GTT/VTT | MB |
+| `amdgpu_power_usage_watts` | Current power usage | W |
+| `amdgpu_socket_power_watts` | Socket power | W |
+| `amdgpu_gpu_frequency_mhz` | GPU core frequency | MHz |
+| `amdgpu_memory_frequency_mhz` | Memory frequency | MHz |
+| `amdgpu_edge_temperature_celsius` | GPU edge temperature | °C |
+| `amdgpu_junction_temperature_celsius` | GPU hotspot temperature | °C |
+
+## Installation
+
+### Build and Install Binary
+
+```bash
+go build -o amdgpu_exporter .
+sudo install -m 755 amdgpu_exporter /usr/local/bin/
+```
+
+### Install Systemd Service
+
+```bash
+sudo cp amdgpu-exporter.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now amdgpu-exporter
+```
+
+### Verify
+
+```bash
+systemctl status amdgpu-exporter
+curl http://localhost:9042/metrics
+curl http://localhost:9042/health
+```
+
+## Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `/metrics` | Prometheus metrics (port 9042) |
+| `/health` | Health check endpoint |
+
+## Requirements
+
+- Linux with AMD GPU
+- `amdgpu_top` tool (from `mesa-utils-extra` or similar package)
+- Go 1.16+ (for building)
+
+## Prometheus Configuration
+
+Add to `prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: 'amdgpu'
+    static_configs:
+      - targets: ['localhost:9042']
+```
 
 ## (!) This project was fully vibe-coded
 
