@@ -44,6 +44,12 @@ type GPUMetrics struct {
 	TemperatureHotspot float64 `json:"temperature_hotspot"`
 }
 
+type DevicePath struct {
+	Card   string `json:"card"`
+	PCI    string `json:"pci"`
+	Render string `json:"render"`
+}
+
 type GPUData struct {
 	GPUActivity GPUActivity `json:"gpu_activity"`
 	VRAM        VRAM        `json:"VRAM"`
@@ -51,9 +57,10 @@ type GPUData struct {
 	GPUMetrics  GPUMetrics  `json:"gpu_metrics"`
 	DeviceName  string      `json:"DeviceName"`
 	ASICName    string      `json:"ASIC Name"`
+	DevicePath  DevicePath  `json:"DevicePath"`
 }
 
-func fetchGPUMetrics() (*GPUData, error) {
+func fetchGPUMetrics() ([]GPUData, error) {
 	cmd := exec.Command("amdgpu_top", "-d", "-gm", "-J")
 	output, err := cmd.Output()
 	if err != nil {
@@ -69,7 +76,7 @@ func fetchGPUMetrics() (*GPUData, error) {
 		return nil, fmt.Errorf("no GPU data found")
 	}
 
-	return &gpuData[0], nil
+	return gpuData, nil
 }
 
 func formatPrometheusMetric(name string, value float64, help string, labels ...string) string {
@@ -103,7 +110,7 @@ func join(slice []string, sep string) string {
 func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
-	gpuData, err := fetchGPUMetrics()
+	gpuList, err := fetchGPUMetrics()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to fetch GPU metrics: %v", err), http.StatusInternalServerError)
 		return
@@ -111,69 +118,71 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 	metrics := make([]string, 0)
 
-	deviceLabels := []string{"device", gpuData.DeviceName, "asic", gpuData.ASICName}
+	for _, gpu := range gpuList {
+		deviceLabels := []string{"device", gpu.DeviceName, "asic", gpu.ASICName, "pci", gpu.DevicePath.PCI}
 
-	// GPU Activity / Compute Load
-	if gpuData.GPUActivity.GFX.Value >= 0 {
-		metrics = append(metrics, formatPrometheusMetric("gpu_usage_percent", gpuData.GPUActivity.GFX.Value, "GPU usage percentage (compute/GFX)", deviceLabels...))
-	}
-	if gpuData.GPUActivity.MediaEngine.Value >= 0 {
-		metrics = append(metrics, formatPrometheusMetric("media_engine_usage_percent", gpuData.GPUActivity.MediaEngine.Value, "Media engine usage percentage", deviceLabels...))
-	}
-	if gpuData.GPUActivity.Memory.Value >= 0 {
-		metrics = append(metrics, formatPrometheusMetric("memory_activity_percent", gpuData.GPUActivity.Memory.Value, "Memory activity percentage", deviceLabels...))
-	}
+		// GPU Activity / Compute Load
+		if gpu.GPUActivity.GFX.Value >= 0 {
+			metrics = append(metrics, formatPrometheusMetric("gpu_usage_percent", gpu.GPUActivity.GFX.Value, "GPU usage percentage (compute/GFX)", deviceLabels...))
+		}
+		if gpu.GPUActivity.MediaEngine.Value >= 0 {
+			metrics = append(metrics, formatPrometheusMetric("media_engine_usage_percent", gpu.GPUActivity.MediaEngine.Value, "Media engine usage percentage", deviceLabels...))
+		}
+		if gpu.GPUActivity.Memory.Value >= 0 {
+			metrics = append(metrics, formatPrometheusMetric("memory_activity_percent", gpu.GPUActivity.Memory.Value, "Memory activity percentage", deviceLabels...))
+		}
 
-	// VRAM Usage
-	if gpuData.VRAM.TotalVRAM.Value > 0 {
-		metrics = append(metrics, formatPrometheusMetric("vram_total_mb", gpuData.VRAM.TotalVRAM.Value, "Total VRAM in MB", deviceLabels...))
-	}
-	if gpuData.VRAM.TotalVRAMUsage.Value >= 0 {
-		metrics = append(metrics, formatPrometheusMetric("vram_used_mb", gpuData.VRAM.TotalVRAMUsage.Value, "Used VRAM in MB", deviceLabels...))
-	}
+		// VRAM Usage
+		if gpu.VRAM.TotalVRAM.Value > 0 {
+			metrics = append(metrics, formatPrometheusMetric("vram_total_mb", gpu.VRAM.TotalVRAM.Value, "Total VRAM in MB", deviceLabels...))
+		}
+		if gpu.VRAM.TotalVRAMUsage.Value >= 0 {
+			metrics = append(metrics, formatPrometheusMetric("vram_used_mb", gpu.VRAM.TotalVRAMUsage.Value, "Used VRAM in MB", deviceLabels...))
+		}
 
-	// GTT (VTT) Usage
-	if gpuData.VRAM.TotalGTT.Value > 0 {
-		metrics = append(metrics, formatPrometheusMetric("vtt_total_mb", gpuData.VRAM.TotalGTT.Value, "Total GTT/VTT in MB", deviceLabels...))
-	}
-	if gpuData.VRAM.TotalGTTUsage.Value >= 0 {
-		metrics = append(metrics, formatPrometheusMetric("vtt_used_mb", gpuData.VRAM.TotalGTTUsage.Value, "Used GTT/VTT in MB", deviceLabels...))
-	}
+		// GTT (VTT) Usage
+		if gpu.VRAM.TotalGTT.Value > 0 {
+			metrics = append(metrics, formatPrometheusMetric("vtt_total_mb", gpu.VRAM.TotalGTT.Value, "Total GTT/VTT in MB", deviceLabels...))
+		}
+		if gpu.VRAM.TotalGTTUsage.Value >= 0 {
+			metrics = append(metrics, formatPrometheusMetric("vtt_used_mb", gpu.VRAM.TotalGTTUsage.Value, "Used GTT/VTT in MB", deviceLabels...))
+		}
 
-	// Power metrics
-	if gpuData.Sensors.AveragePower.Value > 0 {
-		metrics = append(metrics, formatPrometheusMetric("power_usage_watts", gpuData.Sensors.AveragePower.Value, "Current power usage in Watts", deviceLabels...))
-	}
-	if gpuData.GPUMetrics.AverageSocketPower > 0 {
-		metrics = append(metrics, formatPrometheusMetricInt("socket_power_watts", gpuData.GPUMetrics.AverageSocketPower, "Socket power in Watts", deviceLabels...))
-	}
+		// Power metrics
+		if gpu.Sensors.AveragePower.Value > 0 {
+			metrics = append(metrics, formatPrometheusMetric("power_usage_watts", gpu.Sensors.AveragePower.Value, "Current power usage in Watts", deviceLabels...))
+		}
+		if gpu.GPUMetrics.AverageSocketPower > 0 {
+			metrics = append(metrics, formatPrometheusMetricInt("socket_power_watts", gpu.GPUMetrics.AverageSocketPower, "Socket power in Watts", deviceLabels...))
+		}
 
-	// GPU Frequency
-	if gpuData.GPUMetrics.CurrentGFXclk > 0 {
-		metrics = append(metrics, formatPrometheusMetric("gpu_frequency_mhz", gpuData.GPUMetrics.CurrentGFXclk, "Current GPU core frequency in MHz", deviceLabels...))
-	}
+		// GPU Frequency
+		if gpu.GPUMetrics.CurrentGFXclk > 0 {
+			metrics = append(metrics, formatPrometheusMetric("gpu_frequency_mhz", gpu.GPUMetrics.CurrentGFXclk, "Current GPU core frequency in MHz", deviceLabels...))
+		}
 
-	// Memory Frequency
-	if gpuData.GPUMetrics.CurrentUclk > 0 {
-		metrics = append(metrics, formatPrometheusMetric("memory_frequency_mhz", gpuData.GPUMetrics.CurrentUclk, "Current memory frequency in MHz", deviceLabels...))
-	}
+		// Memory Frequency
+		if gpu.GPUMetrics.CurrentUclk > 0 {
+			metrics = append(metrics, formatPrometheusMetric("memory_frequency_mhz", gpu.GPUMetrics.CurrentUclk, "Current memory frequency in MHz", deviceLabels...))
+		}
 
-	// Temperature metrics
-	if gpuData.Sensors.EdgeTemperature.Value > 0 {
-		metrics = append(metrics, formatPrometheusMetric("edge_temperature_celsius", gpuData.Sensors.EdgeTemperature.Value, "GPU edge temperature in Celsius", deviceLabels...))
-	}
-	if gpuData.Sensors.JunctionTemp.Value > 0 {
-		metrics = append(metrics, formatPrometheusMetric("junction_temperature_celsius", gpuData.Sensors.JunctionTemp.Value, "GPU junction/hotspot temperature in Celsius", deviceLabels...))
-	}
-	if gpuData.GPUMetrics.TemperatureEdge > 0 {
-		metrics = append(metrics, formatPrometheusMetric("gpu_temp_edge_celsius", gpuData.GPUMetrics.TemperatureEdge, "GPU edge temperature from metrics in Celsius", deviceLabels...))
-	}
-	if gpuData.GPUMetrics.TemperatureHotspot > 0 {
-		metrics = append(metrics, formatPrometheusMetric("gpu_temp_hotspot_celsius", gpuData.GPUMetrics.TemperatureHotspot, "GPU hotspot temperature from metrics in Celsius", deviceLabels...))
-	}
+		// Temperature metrics
+		if gpu.Sensors.EdgeTemperature.Value > 0 {
+			metrics = append(metrics, formatPrometheusMetric("edge_temperature_celsius", gpu.Sensors.EdgeTemperature.Value, "GPU edge temperature in Celsius", deviceLabels...))
+		}
+		if gpu.Sensors.JunctionTemp.Value > 0 {
+			metrics = append(metrics, formatPrometheusMetric("junction_temperature_celsius", gpu.Sensors.JunctionTemp.Value, "GPU junction/hotspot temperature in Celsius", deviceLabels...))
+		}
+		if gpu.GPUMetrics.TemperatureEdge > 0 {
+			metrics = append(metrics, formatPrometheusMetric("gpu_temp_edge_celsius", gpu.GPUMetrics.TemperatureEdge, "GPU edge temperature from metrics in Celsius", deviceLabels...))
+		}
+		if gpu.GPUMetrics.TemperatureHotspot > 0 {
+			metrics = append(metrics, formatPrometheusMetric("gpu_temp_hotspot_celsius", gpu.GPUMetrics.TemperatureHotspot, "GPU hotspot temperature from metrics in Celsius", deviceLabels...))
+		}
 
-	// Info metric (static)
-	metrics = append(metrics, formatPrometheusMetricInt("info", 1, "GPU info metric", deviceLabels...))
+		// Info metric (static)
+		metrics = append(metrics, formatPrometheusMetricInt("info", 1, "GPU info metric", deviceLabels...))
+	}
 
 	w.Write([]byte(join(metrics, "\n")))
 }
